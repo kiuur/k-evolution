@@ -2,12 +2,12 @@ import { Boom } from '@hapi/boom'
 import { Logger } from 'pino'
 import { proto } from '../../WAProto'
 import { SignalRepository, WAMessageKey } from '../Types'
-import { areJidsSameUser, BinaryNode, isJidBroadcast, isJidGroup, isJidStatusBroadcast, isJidUser, isLidUser } from '../WABinary'
+import { areJidsSameUser, BinaryNode, isJidBroadcast, isJidGroup, isJidNewsletter, isJidStatusBroadcast, isJidUser, isLidUser } from '../WABinary'
 import { BufferJSON, unpadRandomMax16 } from './generics'
 
 const NO_MESSAGE_FOUND_ERROR_TEXT = 'Message absent from node'
 
-type MessageType = 'chat' | 'peer_broadcast' | 'other_broadcast' | 'group' | 'direct_peer_status' | 'other_status'
+type MessageType = 'chat' | 'peer_broadcast' | 'other_broadcast' | 'group' | 'direct_peer_status' | 'other_status' | 'newsletter'
 
 /**
  * Decode the received node as a message.
@@ -64,6 +64,10 @@ export function decodeMessageNode(
 		msgType = 'group'
 		author = participant
 		chatId = from
+	} else if(isJidNewsletter(from)) {
+		msgType = 'newsletter'
+		author = from
+		chatId = from
 	} else if(isJidBroadcast(from)) {
 		if(!participant) {
 			throw new Boom('No participant in group message')
@@ -82,14 +86,15 @@ export function decodeMessageNode(
 		throw new Boom('Unknown message type', { data: stanza })
 	}
 
-	const fromMe = (isLidUser(from) ? isMeLid : isMe)(stanza.attrs.participant || stanza.attrs.from)
-	const pushname = stanza.attrs.notify
+	const fromMe = isJidNewsletter(from) ? !!stanza.attrs?.is_sender || false : (isLidUser(from) ? isMeLid : isMe)(stanza.attrs.participant || stanza.attrs.from)
+	const pushname = stanza?.attrs?.notify
 
 	const key: WAMessageKey = {
 		remoteJid: chatId,
 		fromMe,
 		id: msgId,
-		participant
+		participant,
+		server_id: stanza.attrs?.server_id
 	}
 
 	const fullMessage: proto.IWebMessageInfo = {
@@ -132,17 +137,18 @@ export const decryptMessageNode = (
 						fullMessage.verifiedBizName = details.verifiedName
 					}
 
-					if(tag !== 'enc') {
+					if(tag !== 'enc' && tag !== 'plaintext' && tag !== 'reaction') {
 						continue
 					}
 
-					if(!(content instanceof Uint8Array)) {
+					if(!(content instanceof Uint8Array) && tag !== 'reaction') {
 						continue
 					}
 
 					decryptables += 1
 
-					let msgBuffer: Uint8Array
+					let msg: proto.IMessage
+					let msgBuffer: Uint8Array | undefined					
 
 					try {
 						const e2eType = attrs.type
@@ -151,7 +157,7 @@ export const decryptMessageNode = (
 							msgBuffer = await repository.decryptGroupMessage({
 								group: sender,
 								authorJid: author,
-								msg: content
+								msg: content as any
 							})
 							break
 						case 'pkmsg':
@@ -160,24 +166,32 @@ export const decryptMessageNode = (
 							msgBuffer = await repository.decryptMessage({
 								jid: user,
 								type: e2eType,
-								ciphertext: content
+								ciphertext: content as any
 							})
+							break
+						case undefined:
+							msgBuffer = content as any
 							break
 						default:
 							throw new Error(`Unknown e2e type: ${e2eType}`)
 						}
 
-						let msg: proto.IMessage = proto.Message.decode(unpadRandomMax16(msgBuffer))
-						msg = msg.deviceSentMessage?.message || msg
-						if(msg.senderKeyDistributionMessage) {
+						if(msgBuffer) {
+							msg = proto.Message.decode(tag === 'plaintext' ? msgBuffer : unpadRandomMax16(msgBuffer))
+							msg = msg?.deviceSentMessage?.message || msg
+						} else {
+							msg = attrs?.code ? proto.Message.create({reactionMessage: {text: attrs.code}}) : {}
+						}
+
+						if(msg?.senderKeyDistributionMessage) {
 							try {
 								await repository.processSenderKeyDistributionMessage({
 									authorJid: author,
 									item: msg.senderKeyDistributionMessage
 								})
 							} catch(err) {
-								logger.error({ key: fullMessage.key, err }, 'failed to decrypt message');
-						    }
+								logger.error({ key: fullMessage.key, err }, 'failed to decrypt message')
+								}
 						}
 
 						if(fullMessage.message) {
