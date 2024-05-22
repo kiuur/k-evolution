@@ -713,6 +713,35 @@ await sock.sendMessage(
     ```
 Of course, replace ``` xyz ``` with an actual ID. 
 
+## Newsletter
+- To get info newsletter
+    ``` ts
+    const url = "https://whatsapp.com/channel/xxxxx"
+    const metadata = await sock.getNewsletterInfo(url)
+    console.log(metadata)
+    ```
+- To create a newsletter
+    ``` ts
+    // title & description
+    await sock.createNewsletter("My New Channel", "Welcome to my channel")
+    ```
+- To join a newsletter
+    ``` ts
+    await sock.joinNewsletter("abcd@newsletter") // jid newsletter
+    ```
+- To leave a newsletter
+    ``` ts
+    await sock.leaveNewsletter("abcd@newsletter") // jid newsletter
+    ```
+- To send reaction
+    ``` ts
+    // jid, id message & emoticon
+    // way to get the ID is to copy the message url from channel
+    // Example: [ https://whatsapp.com/channel/xxxxx/175 ]
+    // The last number of the URL is the ID
+    const id = "175"
+    await sock.sendNewsletterReaction("abcd@newsletter", id, "🥳")
+    ```
 ## Groups
 - To create a group
     ``` ts
