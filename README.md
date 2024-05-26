@@ -716,22 +716,51 @@ Of course, replace ``` xyz ``` with an actual ID.
 ## Newsletter
 - To get info newsletter
     ``` ts
-    const url = "https://whatsapp.com/channel/xxxxx"
-    const metadata = await sock.getNewsletterInfo(url)
+    const metadata = await sock.newsletterMetadata("invite", "xxxxx")
+    // or
+    const metadata = await sock.newsletterMetadata("jid", "abcd@newsletter")
     console.log(metadata)
+    ```
+- To update the description of a newsletter
+    ``` ts
+    await sock.newsletterUpdateDescription("abcd@newsletter", "New Description")
+    ```
+- To update the name of a newsletter
+    ``` ts
+    await sock.newsletterUpdateName("abcd@newsletter", "New Name")
+    ```  
+- To update the profile picture of a newsletter.
+    ``` ts
+    await sock.newsletterUpdatePicture("abcd@newsletter", buffer)
+    ```
+- To remove the profile picture of a newsletter
+    ``` ts
+    await sock.newsletterRemovePicture("abcd@newsletter")
+    ```
+- To mute notifications for a newsletter.
+    ``` ts
+    await sock.newsletterUnmute("abcd@newsletter")
+    ```
+- To mute notifications for a newsletter.
+    ``` ts
+    await sock.newsletterMute("abcd@newsletter")
     ```
 - To create a newsletter
     ``` ts
-    // title & description
-    await sock.createNewsletter("My New Channel", "Welcome to my channel")
+    const metadata = await sock.newsletterCreate("Newsletter Name", "Newsletter Description")
+    console.log(metadata)
     ```
-- To join a newsletter
+- To delete a newsletter.
     ``` ts
-    await sock.joinNewsletter("abcd@newsletter") // jid newsletter
+    await sock.newsletterDelete("abcd@newsletter")
     ```
-- To leave a newsletter
+- To follow a newsletter
     ``` ts
-    await sock.leaveNewsletter("abcd@newsletter") // jid newsletter
+    await sock.newsletterFollow("abcd@newsletter")
+    ```
+- To unfollow a newsletter
+    ``` ts
+    await sock.newsletterUnfollow("abcd@newsletter")
     ```
 - To send reaction
     ``` ts
@@ -740,7 +769,7 @@ Of course, replace ``` xyz ``` with an actual ID.
     // Example: [ https://whatsapp.com/channel/xxxxx/175 ]
     // The last number of the URL is the ID
     const id = "175"
-    await sock.sendNewsletterReaction("abcd@newsletter", id, "🥳")
+    await sock.newsletterReactMessage("abcd@newsletter", id, "🥳")
     ```
 ## Groups
 - To create a group
