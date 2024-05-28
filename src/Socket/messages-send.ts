@@ -1,12 +1,13 @@
 
 import { Boom } from '@hapi/boom'
 import NodeCache from 'node-cache'
+import { Readable } from 'stream'
 import { proto } from '../../WAProto'
 import { DEFAULT_CACHE_TTLS, WA_DEFAULT_EPHEMERAL } from '../Defaults'
-import { AnyMessageContent, MediaConnInfo, MessageReceiptType, MessageRelayOptions, MiscMessageGenerationOptions, SocketConfig, WAMessageKey } from '../Types'
+import { AnyMessageContent, MediaConnInfo, MessageReceiptType, MessageRelayOptions, MiscMessageGenerationOptions, SocketConfig, WAMediaUploadFunctionOpts, WAMessageKey } from '../Types'
 import { aggregateMessageKeysNotFromMe, assertMediaContent, bindWaitForEvent, decryptMediaRetryData, encodeNewsletterMessage, encodeSignedDeviceIdentity, encodeWAMessage, encryptMediaRetryRequest, extractDeviceJids, generateMessageID, generateWAMessage, getStatusCodeForMediaRetry, getUrlFromDirectPath, getWAUploadToServer, parseAndInjectE2ESessions, unixTimestampSeconds } from '../Utils'
 import { getUrlInfo } from '../Utils/link-preview'
-import { areJidsSameUser, BinaryNode, BinaryNodeAttributes, getBinaryNodeChild, getBinaryNodeChildren, isJidGroup, isJidUser, jidDecode, jidEncode, jidNormalizedUser, JidWithDevice, S_WHATSAPP_NET } from '../WABinary'
+import { areJidsSameUser, BinaryNode, BinaryNodeAttributes, getBinaryNodeChild, getBinaryNodeChildren, isJidGroup, isJidNewsletter, isJidUser, jidDecode, jidEncode, jidNormalizedUser, JidWithDevice, S_WHATSAPP_NET } from '../WABinary'
 import { makeNewsletterSocket } from './newsletter'
 import ListType = proto.Message.ListMessage.ListType;
 
@@ -99,7 +100,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		}
 
 		if(type) {
-			node.attrs.type = type
+			node.attrs.type = isJidNewsletter(jid) ? 'read-self' : type
 		}
 
 		const remainingMessageIds = messageIds.slice(1)
@@ -428,13 +429,25 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 					})
 
 					await authState.keys.set({ 'sender-key-memory': { [jid]: senderKeyMap } })
-				} else if(isNewsletter){
+				} else if(isNewsletter) {
+				    // Message edit
+					if (message.protocolMessage?.editedMessage) {
+						msgId = message.protocolMessage.key?.id!
+						message = message.protocolMessage.editedMessage
+					}
+
+					// Message delete
+					if (message.protocolMessage?.type === proto.Message.ProtocolMessage.Type.REVOKE) {
+						msgId = message.protocolMessage.key?.id!
+						message = {}
+					}
+
 					const patched = await patchMessageBeforeSending(message, [])
 					const bytes = encodeNewsletterMessage(patched)
 
 					binaryNodeContent.push({
 						tag: 'plaintext',
-						attrs: {},
+						attrs: mediaType ? { mediatype: mediaType } : {},
 						content: bytes
 					})
 				} else {
@@ -493,7 +506,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 					tag: 'message',
 					attrs: {
 						id: msgId!,
-						type: 'text',
+						type: getTypeMessage(message),
 						...(additionalAttributes || {})
 					},
 					content: binaryNodeContent
@@ -570,6 +583,28 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		)
 
 		return msgId
+	}
+
+	const getTypeMessage = (msg: proto.IMessage) => {
+		if (msg.viewOnceMessage) {
+			return getTypeMessage(msg.viewOnceMessage.message!)
+		} else if (msg.viewOnceMessageV2) {
+			return getTypeMessage(msg.viewOnceMessageV2.message!)
+		} else if (msg.viewOnceMessageV2Extension) {
+			return getTypeMessage(msg.viewOnceMessageV2Extension.message!)
+		} else if (msg.ephemeralMessage) {
+			return getTypeMessage(msg.ephemeralMessage.message!)
+		} else if (msg.documentWithCaptionMessage) {
+			return getTypeMessage(msg.documentWithCaptionMessage.message!)
+		} else if (msg.reactionMessage) {
+			return 'reaction'
+		} else if (msg.pollCreationMessage || msg.pollCreationMessageV2 || msg.pollCreationMessageV3 || msg.pollUpdateMessage) {
+			return 'reaction'
+		} else if (getMediaType(msg)) {
+			return 'media'
+		} else {
+			return 'text'
+		}
 	}
 
 	const getMediaType = (message: proto.IMessage) => {
@@ -749,6 +784,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 					disappearingMessagesInChat
 				await groupToggleEphemeral(jid, value)
 			} else {
+		    	let mediaHandle
 				const fullMsg = await generateWAMessage(
 					jid,
 					content,
@@ -769,7 +805,11 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 									: undefined
 							},
 						),
-						upload: waUploadToServer,
+						upload: async(readStream: Readable, opts: WAMediaUploadFunctionOpts) => {
+							const up = await waUploadToServer(readStream, { ...opts, newsletter: isJidNewsletter(jid) })
+							mediaHandle = up.handle
+							return up
+						},
 						mediaCache: config.mediaCache,
 						options: config.options,
 						...options,
@@ -781,13 +821,17 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 				// required for delete
 				if(isDeleteMsg) {
 					// if the chat is a group, and I am not the author, then delete the message as an admin
-					if(isJidGroup(content.delete?.remoteJid as string) && !content.delete?.fromMe) {
+					if((isJidGroup(content.delete?.remoteJid as string) && !content.delete?.fromMe) || isJidNewsletter(jid)) {
 						additionalAttributes.edit = '8'
 					} else {
 						additionalAttributes.edit = '7'
 					}
 				} else if(isEditMsg) {
-					additionalAttributes.edit = '1'
+					additionalAttributes.edit = isJidNewsletter(jid) ? '3' : '1'
+				}
+
+				if (mediaHandle) {
+					additionalAttributes['media_id'] = mediaHandle
 				}
 
 				await relayMessage(jid, fullMsg.message!, { messageId: fullMsg.key.id!, cachedGroupMetadata: options.cachedGroupMetadata, additionalAttributes, statusJidList: options.statusJidList })

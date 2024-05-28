@@ -103,6 +103,10 @@ export function decodeMessageNode(
 		pushName: pushname,
 		broadcast: isJidBroadcast(from)
 	}
+	
+	if (msgType === 'newsletter') {
+		fullMessage.newsletterServerId = +stanza.attrs?.server_id
+	}
 
 	if(key.fromMe) {
 		fullMessage.status = proto.WebMessageInfo.Status.SERVER_ACK
