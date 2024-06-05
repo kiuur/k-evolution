@@ -32,7 +32,7 @@ import {
 	getBinaryNodeChild,
 	getBinaryNodeChildBuffer,
 	getBinaryNodeChildren,
-	isJidGroup,
+	isJidGroup, isJidStatusBroadcast,
 	isJidUser,
 	jidDecode,
 	jidNormalizedUser,
@@ -239,6 +239,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		child: BinaryNode,
 		msg: Partial<proto.IWebMessageInfo>
 	) => {
+	    const participantJid = getBinaryNodeChild(child, 'participant')?.attrs?.jid || participant
 		switch (child?.tag) {
 		case 'create':
 			const metadata = extractGroupMetadata(child)
@@ -322,15 +323,14 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 
 			break
 		case 'created_membership_requests':
-		    const request_method = child.attrs!.request_method
-		    if(request_method === 'non_admin_add') {
-			    const participants = getBinaryNodeChildren(child, 'requested_user').map(p => p.attrs.jid)
-			    msg.messageStubType = WAMessageStubType.GROUP_MEMBERSHIP_JOIN_APPROVAL_REQUEST
-			    msg.messageStubParameters = participants
-		    } else {
-			    msg.messageStubType = WAMessageStubType.GROUP_MEMBERSHIP_JOIN_APPROVAL_REQUEST
-			    msg.messageStubParameters = [ participant ]
-		    }
+			msg.messageStubType = WAMessageStubType.GROUP_MEMBERSHIP_JOIN_APPROVAL_REQUEST_NON_ADMIN_ADD
+			msg.messageStubParameters = [ participantJid, 'created', child.attrs.request_method ]
+			break
+		case 'revoked_membership_requests':
+			const isDenied = areJidsSameUser(participantJid, participant)
+			msg.messageStubType = WAMessageStubType.GROUP_MEMBERSHIP_JOIN_APPROVAL_REQUEST_NON_ADMIN_ADD
+			msg.messageStubParameters = [ participantJid, isDenied ? 'revoked' : 'rejected' ]
+			break
 
 		break
 		default:
@@ -450,7 +450,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 			const delPicture = getBinaryNodeChild(node, 'delete')
 
 			ev.emit('contacts.update', [{
-				id: jidNormalizedUser(node?.attrs?.jid) || ((setPicture || delPicture)?.attrs?.hash) || '',
+				id: from || ((setPicture || delPicture)?.attrs?.hash) || '',
 				imgUrl: setPicture ? 'changed' : 'removed'
 			}])
 
@@ -671,7 +671,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 							!isNodeFromMe
 						)
 					) {
-						if(isJidGroup(remoteJid)) {
+						if(isJidGroup(remoteJid) || isJidStatusBroadcast(remoteJid)) {
 							if(attrs.participant) {
 								const updateKey: keyof MessageUserReceipt = status === proto.WebMessageInfo.Status.DELIVERY_ACK ? 'receiptTimestamp' : 'readTimestamp'
 								ev.emit(

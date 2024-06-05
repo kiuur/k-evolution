@@ -506,7 +506,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 					tag: 'message',
 					attrs: {
 						id: msgId!,
-						type: 'text',
+						type: isNewsletter ? getTypeMessage(message) : 'text',
 						...(additionalAttributes || {})
 					},
 					content: binaryNodeContent
@@ -583,6 +583,28 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		)
 
 		return msgId
+	}
+	
+	const getTypeMessage = (msg: proto.IMessage) => {
+		if (msg.viewOnceMessage) {
+			return getTypeMessage(msg.viewOnceMessage.message!)
+		} else if (msg.viewOnceMessageV2) {
+			return getTypeMessage(msg.viewOnceMessageV2.message!)
+		} else if (msg.viewOnceMessageV2Extension) {
+			return getTypeMessage(msg.viewOnceMessageV2Extension.message!)
+		} else if (msg.ephemeralMessage) {
+			return getTypeMessage(msg.ephemeralMessage.message!)
+		} else if (msg.documentWithCaptionMessage) {
+			return getTypeMessage(msg.documentWithCaptionMessage.message!)
+		} else if (msg.reactionMessage) {
+			return 'reaction'
+		} else if (msg.pollCreationMessage || msg.pollCreationMessageV2 || msg.pollCreationMessageV3 || msg.pollUpdateMessage) {
+			return 'reaction'
+		} else if (getMediaType(msg)) {
+			return 'media'
+		} else {
+			return 'text'
+		}
 	}
 
 	const getMediaType = (message: proto.IMessage) => {
