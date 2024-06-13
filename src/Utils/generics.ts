@@ -1,12 +1,12 @@
 import { Boom } from '@hapi/boom'
 import axios, { AxiosRequestConfig } from 'axios'
-import { randomBytes } from 'crypto'
+import { createHash, randomBytes } from 'crypto'
 import { platform, release } from 'os'
 import { Logger } from 'pino'
 import { proto } from '../../WAProto'
 import { version as baileysVersion } from '../Defaults/baileys-version.json'
 import { BaileysEventEmitter, BaileysEventMap, DisconnectReason, WACallUpdateType, WAVersion } from '../Types'
-import { BinaryNode, getAllBinaryNodeChildren } from '../WABinary'
+import { BinaryNode, getAllBinaryNodeChildren, jidDecode } from '../WABinary'
 
 const PLATFORM_MAP = {
 	'aix': 'AIX',
@@ -172,6 +172,25 @@ export async function promiseTimeout<T>(ms: number | undefined, promise: (resolv
 	})
 		.finally (cancel)
 	return p as Promise<T>
+}
+
+export const generateMessageIDV2 = (userId?: string): string => {
+  const data = Buffer.alloc(8 + 20 + 16)
+  data.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 1000)))
+
+  if (userId) {
+	const id = jidDecode(userId)
+	if (id?.user) {
+		data.write(id.user, 8)
+		data.write('@c.us', 8 + id.user.length)
+	}
+  }
+
+  const random = randomBytes(20)
+  random.copy(data, 28)
+
+  const hash = createHash('sha256').update(data).digest()
+  return 'B1EY' + hash.toString('hex').toUpperCase().substring(0, 16)
 }
 
 // generate a random ID to attach to a message
