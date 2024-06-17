@@ -8,6 +8,8 @@ import type { MinimalMessage } from './Message'
 /** privacy settings in WhatsApp Web */
 export type WAPrivacyValue = 'all' | 'contacts' | 'contact_blacklist' | 'none'
 
+export type WAPrivacyCallValue = 'all' | 'known'
+
 export type WAPrivacyOnlineValue = 'all' | 'match_last_seen'
 
 export type WAReadReceiptsValue = 'all' | 'none'
